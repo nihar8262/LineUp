@@ -58,7 +58,7 @@ function App() {
     setTodos([...newTodos]);
   };
   const handleAdd = () => {
-    setTodos([...todos, { id: uuidv4(), todo, deadline, isCompleted: false, createdAt: new Date().toISOString() }]);
+    setTodos([{ id: uuidv4(), todo, deadline, isCompleted: false, createdAt: new Date().toISOString() }, ...todos]);
     setTodo("");
     setDeadline("");
   };
