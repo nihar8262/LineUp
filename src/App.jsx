@@ -66,7 +66,8 @@ function App() {
   };
 
   return (
-    <div className="box max-h-full ">
+    <div class="relative min-h-screen ">
+      <div class="absolute inset-0 -z-10 h-full w-full bg-white bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:6rem_4rem]"></div>
       <Navbar />
       <div className="md:container   relative z-1000  md:mx-auto md:p-5 p-1 md:w-[60vw] ">
         <div className="bg-gradient-to-tr from-black via-black to-neutral-700   min-h-[80vh] shadow-sm shadow-slate-300  max-h-full p-6   rounded-lg  text-white  ">
@@ -84,7 +85,7 @@ function App() {
             <button
               onClick={handleAdd}
               disabled={todo.length <= 3}
-              className="bg-amber-600  p-1 disabled:shadow-amber-700 disabled:shadow-md rounded-lg px-4 font-bold   cursor-pointer"
+              className="bg-amber-400/80  p-1 disabled:shadow-amber-400 disabled:shadow-md rounded-lg px-4 font-bold   cursor-pointer"
             >
               Save
             </button>
