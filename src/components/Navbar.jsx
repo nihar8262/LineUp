@@ -8,8 +8,6 @@ const Navbar = () => {
             <span className='font-bold text-3xl mx-8' >L!NE∩P</span> 
         </div>
         <ul className="flex gap-8 mx-9 items-center">
-            <li className='cursor-pointer hover:font-bold transition-all duration-300'>Home</li>
-            <li className='cursor-pointer hover:font-bold transition-all duration-300'>About</li>
             <li>
                 <a 
                     href="https://github.com/nihar8262/LineUp" 
