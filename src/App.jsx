@@ -57,6 +57,32 @@ function App() {
     let newTodos = todos.filter((item) => item.id !== id);
     setTodos([...newTodos]);
   };
+  
+  const handleDeleteFiltered = () => {
+    if (timeFilter === "all") {
+      if (window.confirm("Are you sure you want to delete ALL todos? This action cannot be undone.")) {
+        setTodos([]);
+        localStorage.removeItem("todos");
+      }
+    } else {
+      const filterName = timeFilter === "1hour" ? "last hour" : timeFilter === "24hours" ? "last 24 hours" : "last 7 days";
+      if (window.confirm(`Are you sure you want to delete all todos from ${filterName}?`)) {
+        const filteredTodos = todos.filter((item) => {
+          if (!item.createdAt) return true;
+          const now = new Date();
+          const createdAt = new Date(item.createdAt);
+          const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
+          
+          if (timeFilter === "1hour" && hoursDiff <= 1) return false;
+          if (timeFilter === "24hours" && hoursDiff <= 24) return false;
+          if (timeFilter === "7days" && hoursDiff <= 168) return false;
+          return true;
+        });
+        setTodos(filteredTodos);
+      }
+    }
+  };
+  
   const handleAdd = () => {
     setTodos([{ id: uuidv4(), todo, deadline, isCompleted: false, createdAt: new Date().toISOString() }, ...todos]);
     setTodo("");
@@ -101,7 +127,15 @@ function App() {
             </button>
           </div>
           <div className="pt-8 pb-3">
-            <h2 className="text-lg font-bold mb-4">Filter by Time</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">Filter by Time</h2>
+              <button
+                onClick={handleDeleteFiltered}
+                className="cursor-pointer bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold px-4 py-2 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-500/50 flex items-center gap-2"
+              >
+                🗑️ Delete {timeFilter === "all" ? "All" : timeFilter === "1hour" ? "Last Hour" : timeFilter === "24hours" ? "Last 24h" : "Last 7d"} Todos
+              </button>
+            </div>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => setTimeFilter("all")}
