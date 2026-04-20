@@ -1,325 +1,820 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "./components/Navbar";
-import { FaRegEdit } from "react-icons/fa";
-import { MdDelete } from "react-icons/md";
+import {
+  FiAlertCircle,
+  FiBookmark,
+  FiCalendar,
+  FiCheck,
+  FiCheckCircle,
+  FiClock,
+  FiEdit2,
+  FiList,
+  FiTag,
+  FiTrash2,
+  FiX,
+} from "react-icons/fi";
 import { v4 as uuidv4 } from "uuid";
+
+const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "today", label: "Today" },
+  { id: "upcoming", label: "Upcoming" },
+  { id: "completed", label: "Completed" },
+];
+
+const SIDEBAR_ITEMS = [
+  { id: "all", label: "All Tasks", icon: FiList },
+  { id: "today", label: "Today", icon: FiClock },
+  { id: "completed", label: "Completed", icon: FiCheckCircle },
+];
+
+const PRIORITY_OPTIONS = [
+  { id: "high", label: "High", tone: "high" },
+  { id: "medium", label: "Medium", tone: "medium" },
+  { id: "low", label: "Low", tone: "low" },
+];
+
+function formatDateKey(date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(deadline) {
+  if (!deadline) {
+    return "No date";
+  }
+
+  return new Date(`${deadline}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function inferPriority(deadline) {
+  if (!deadline) {
+    return "low";
+  }
+
+  const today = formatDateKey(new Date());
+  const diffInDays = Math.ceil(
+    (new Date(`${deadline}T00:00:00`) - new Date(`${today}T00:00:00`)) /
+      (1000 * 60 * 60 * 24)
+  );
+
+  if (diffInDays <= 1) {
+    return "high";
+  }
+
+  if (diffInDays <= 3) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function normalizeTodo(item) {
+  return {
+    ...item,
+    priority: item.priority || inferPriority(item.deadline),
+    isPinned: Boolean(item.isPinned),
+    tags: Array.isArray(item.tags) ? item.tags.filter(Boolean) : [],
+  };
+}
+
+function getPriority(priority, isCompleted) {
+  if (isCompleted) {
+    return { label: "Completed", tone: "done" };
+  }
+
+  if (priority === "high") {
+    return { label: "High Priority", tone: "high" };
+  }
+
+  if (priority === "medium") {
+    return { label: "Medium Priority", tone: "medium" };
+  }
+
+  return { label: "Low Priority", tone: "low" };
+}
+
+function getDueMeta(deadline, isCompleted) {
+  if (!deadline) {
+    return { label: "No date", tone: "muted" };
+  }
+
+  if (isCompleted) {
+    return { label: formatDisplayDate(deadline), tone: "muted" };
+  }
+
+  const today = formatDateKey(new Date());
+  const diffInDays = Math.ceil(
+    (new Date(`${deadline}T00:00:00`) - new Date(`${today}T00:00:00`)) /
+      (1000 * 60 * 60 * 24)
+  );
+
+  if (diffInDays < 0) {
+    return { label: "Overdue", tone: "high" };
+  }
+
+  if (diffInDays === 0) {
+    return { label: "Today", tone: "medium" };
+  }
+
+  if (diffInDays === 1) {
+    return { label: "Tomorrow", tone: "low" };
+  }
+
+  if (diffInDays <= 7) {
+    return { label: "This Week", tone: "muted" };
+  }
+
+  return { label: formatDisplayDate(deadline), tone: "muted" };
+}
 
 function App() {
   const [todo, setTodo] = useState("");
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [tagsInput, setTagsInput] = useState("");
+  const [isPinned, setIsPinned] = useState(false);
   const [todos, setTodos] = useState([]);
-  const [showCompleted, setShowCompleted] = useState(true);
-  const [timeFilter, setTimeFilter] = useState("all"); // all, 1hour, 24hours, 7days
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [theme, setTheme] = useState("dark");
+  const [editingId, setEditingId] = useState(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isMobileComposerOpen, setIsMobileComposerOpen] = useState(false);
+  const titleInputRef = useRef(null);
 
   useEffect(() => {
     const storedTodos = localStorage.getItem("todos");
     if (storedTodos) {
-      setTodos(JSON.parse(storedTodos));
+      setTodos(JSON.parse(storedTodos).map(normalizeTodo));
+    }
+
+    const storedTheme = localStorage.getItem("lineup-theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setTheme(storedTheme);
     }
   }, []);
 
   useEffect(() => {
     if (todos.length > 0) {
       localStorage.setItem("todos", JSON.stringify(todos));
+      return;
     }
+
+    localStorage.removeItem("todos");
   }, [todos]);
 
-  const handleChange = (e) => {
-    setTodo(e.target.value);
-  };
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("lineup-theme", theme);
+  }, [theme]);
 
-  const handleDescriptionChange = (e) => {
-    setDescription(e.target.value);
-  };
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 639px)");
 
-  const handleDateChange = (e) => {
-    setDeadline(e.target.value);
-  };
+    const updateViewport = (event) => {
+      setIsMobileViewport(event.matches);
+    };
 
-  const toggleShowCompleted = () => {
-    setShowCompleted(!showCompleted);
-  };
+    setIsMobileViewport(mediaQuery.matches);
+    mediaQuery.addEventListener("change", updateViewport);
 
-  const handleCheckbox = (e) => {
-    let id = e.target.name;
-    let index = todos.findIndex((item) => {
-      return item.id === id;
-    });
-    let newTodos = [...todos];
-    newTodos[index].isCompleted = !newTodos[index].isCompleted;
-    setTodos([...newTodos]);
-  };
+    return () => {
+      mediaQuery.removeEventListener("change", updateViewport);
+    };
+  }, []);
 
-  const handleEdit = (e, id) => {
-    let t = todos.filter((i) => i.id === id);
-    setTodo(t[0].todo);
-    setDescription(t[0].description || "");
-    setDeadline(t[0].deadline || "");
-    let newTodos = todos.filter((item) => item.id !== id);
-    setTodos([...newTodos]);
-  };
-  const handleDelete = (e, id) => {
-    let newTodos = todos.filter((item) => item.id !== id);
-    setTodos([...newTodos]);
-  };
-  
-  const handleDeleteFiltered = () => {
-    if (timeFilter === "all") {
-      if (window.confirm("Are you sure you want to delete ALL todos? This action cannot be undone.")) {
-        setTodos([]);
-        localStorage.removeItem("todos");
-      }
-    } else {
-      const filterName = timeFilter === "1hour" ? "last hour" : timeFilter === "24hours" ? "last 24 hours" : "last 7 days";
-      if (window.confirm(`Are you sure you want to delete all todos from ${filterName}?`)) {
-        const filteredTodos = todos.filter((item) => {
-          if (!item.createdAt) return true;
-          const now = new Date();
-          const createdAt = new Date(item.createdAt);
-          const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
-          
-          if (timeFilter === "1hour" && hoursDiff <= 1) return false;
-          if (timeFilter === "24hours" && hoursDiff <= 24) return false;
-          if (timeFilter === "7days" && hoursDiff <= 168) return false;
-          return true;
-        });
-        setTodos(filteredTodos);
-      }
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setIsMobileComposerOpen(false);
+      return;
     }
-  };
-  
-  const handleAdd = () => {
-    setTodos([{ id: uuidv4(), todo, description, deadline, isCompleted: false, createdAt: new Date().toISOString() }, ...todos]);
+
+    if (!isMobileComposerOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileComposerOpen, isMobileViewport]);
+
+  useEffect(() => {
+    if (isMobileComposerOpen) {
+      titleInputRef.current?.focus();
+    }
+  }, [isMobileComposerOpen]);
+
+  const filteredTodos = useMemo(() => {
+    const today = formatDateKey(new Date());
+
+    return todos.filter((item) => {
+      if (activeFilter === "completed") {
+        return item.isCompleted;
+      }
+
+      if (activeFilter === "today") {
+        return !item.isCompleted && item.deadline === today;
+      }
+
+      if (activeFilter === "upcoming") {
+        return !item.isCompleted && Boolean(item.deadline) && item.deadline > today;
+      }
+
+      return true;
+    });
+  }, [activeFilter, todos]);
+
+  const sortedTodos = useMemo(() => {
+    return [...filteredTodos].sort((left, right) => {
+      if (left.isPinned !== right.isPinned) {
+        return right.isPinned - left.isPinned;
+      }
+
+      if (left.isCompleted !== right.isCompleted) {
+        return left.isCompleted - right.isCompleted;
+      }
+
+      return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+    });
+  }, [filteredTodos]);
+
+  const pinnedTodos = useMemo(
+    () => sortedTodos.filter((item) => item.isPinned && !item.isCompleted),
+    [sortedTodos]
+  );
+
+  const regularTodos = useMemo(
+    () => sortedTodos.filter((item) => item.isCompleted || !item.isPinned),
+    [sortedTodos]
+  );
+
+  const stats = useMemo(() => {
+    const today = formatDateKey(new Date());
+
+    return {
+      all: todos.length,
+      today: todos.filter((item) => !item.isCompleted && item.deadline === today).length,
+      completed: todos.filter((item) => item.isCompleted).length,
+      pinned: todos.filter((item) => item.isPinned && !item.isCompleted).length,
+    };
+  }, [todos]);
+
+  const insight = useMemo(() => {
+    const overdueCount = todos.filter(
+      (item) => !item.isCompleted && item.deadline && getDueMeta(item.deadline, false).label === "Overdue"
+    ).length;
+
+    if (overdueCount > 0) {
+      return `${overdueCount} overdue task${overdueCount === 1 ? " needs" : "s need"} attention first.`;
+    }
+
+    if (stats.today > 0) {
+      return `You have ${stats.today} task${stats.today === 1 ? "" : "s"} due today.`;
+    }
+
+    if (stats.pinned > 0) {
+      return `${stats.pinned} pinned task${stats.pinned === 1 ? " is" : "s are"} keeping your focus anchored.`;
+    }
+
+    return "Your board is clear. Capture the next meaningful task while momentum is fresh.";
+  }, [stats.pinned, stats.today, todos]);
+
+  const resetForm = () => {
     setTodo("");
     setDescription("");
     setDeadline("");
+    setPriority("medium");
+    setTagsInput("");
+    setIsPinned(false);
+    setEditingId(null);
   };
 
-  return (
-    <div class="relative min-h-screen ">
-      <div class="absolute inset-0 -z-10 h-full w-full bg-white bg-[linear-gradient(to_right,#f0f0f0_1px,transparent_1px),linear-gradient(to_bottom,#f0f0f0_1px,transparent_1px)] bg-[size:6rem_4rem]"></div>
-      <Navbar />
-      <div className="md:container relative z-1000  md:mx-auto md:pt-16 p-8 pt-20 md:w-[70vw] pb-16">
-        <div className="bg-gradient-to-tr from-black via-black to-neutral-700 shadow-sm shadow-slate-300 p-8 rounded-lg text-white">
-          <h1 className="text-5xl text-center font-bold pb-4">Just Do It</h1>
-          <div className="bg-gradient-to-r from-black via-white to-black h-[1px]  "></div>
-          <h2 className="text-lg pt-5 pb-5 font-bold">Lineup your Work</h2>
-          <div className="flex flex-col gap-4 w-full">
-            <div className="flex flex-col sm:flex-row gap-4 w-full">
-              <div className="relative w-full sm:flex-1">
-                <input
-                  onChange={handleChange}
-                  value={todo}
-                  type="text"
-                  className="w-full bg-gradient-to-r from-white to-gray-50 border-2 border-amber-400/50 focus:border-amber-500 focus:ring-4 focus:ring-amber-400/20 rounded-xl px-5 py-3 text-black font-medium text-lg placeholder:text-gray-400 transition-all duration-300 shadow-md focus:shadow-xl focus:shadow-amber-400/30 outline-none"
-                  placeholder="✨ What needs to be done?"
-                />
-              </div>
-              <div className="relative w-full sm:w-auto sm:min-w-[180px]">
-                <input
-                  onChange={handleDateChange}
-                  value={deadline}
-                  type="date"
-                  className="w-full bg-gradient-to-r from-white to-gray-50 border-2 border-purple-400/50 focus:border-purple-500 focus:ring-4 focus:ring-purple-400/20 rounded-xl px-4 py-3 text-black font-medium text-base transition-all duration-300 shadow-md focus:shadow-xl focus:shadow-purple-400/30 outline-none cursor-pointer"
-                />
-              </div>
-            </div>
-            <div className="relative w-full">
-              <textarea
-                onChange={handleDescriptionChange}
-                value={description}
-                rows="2"
-                className="w-full bg-gradient-to-r from-white to-gray-50 border-2 border-blue-400/50 focus:border-blue-500 focus:ring-4 focus:ring-blue-400/20 rounded-xl px-5 py-3 text-black font-medium text-base placeholder:text-gray-400 transition-all duration-300 shadow-md focus:shadow-xl focus:shadow-blue-400/30 outline-none resize-none"
-                placeholder="📝 Add description (optional)"
-              />
-            </div>
+  const openComposer = () => {
+    if (isMobileViewport) {
+      setIsMobileComposerOpen(true);
+      return;
+    }
+
+    titleInputRef.current?.focus();
+  };
+
+  const closeMobileComposer = () => {
+    setIsMobileComposerOpen(false);
+  };
+
+  const dismissComposer = () => {
+    resetForm();
+
+    if (isMobileViewport) {
+      closeMobileComposer();
+    }
+  };
+
+  const handleCheckbox = (id) => {
+    setTodos((currentTodos) =>
+      currentTodos.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isCompleted: !item.isCompleted,
+            }
+          : item
+      )
+    );
+  };
+
+  const handleEdit = (id) => {
+    const task = todos.find((item) => item.id === id);
+
+    if (!task) {
+      return;
+    }
+
+    setTodo(task.todo);
+    setDescription(task.description || "");
+    setDeadline(task.deadline || "");
+    setPriority(task.priority || "medium");
+    setTagsInput((task.tags || []).join(", "));
+    setIsPinned(Boolean(task.isPinned));
+    setEditingId(id);
+
+    if (isMobileViewport) {
+      setIsMobileComposerOpen(true);
+      return;
+    }
+
+    titleInputRef.current?.focus();
+  };
+
+  const handleDelete = (id) => {
+    setTodos((currentTodos) => currentTodos.filter((item) => item.id !== id));
+
+    if (editingId === id) {
+      resetForm();
+
+      if (isMobileViewport) {
+        closeMobileComposer();
+      }
+    }
+  };
+
+  const handleSubmit = (event) => {
+    event?.preventDefault();
+
+    const title = todo.trim();
+    const notes = description.trim();
+    const parsedTags = tagsInput
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 4);
+
+    if (title.length < 3) {
+      return;
+    }
+
+    if (editingId) {
+      setTodos((currentTodos) =>
+        currentTodos.map((item) =>
+          item.id === editingId
+            ? {
+                ...item,
+                todo: title,
+                description: notes,
+                deadline,
+                priority,
+                isPinned,
+                tags: parsedTags,
+              }
+            : item
+        )
+      );
+
+      if (isMobileViewport) {
+        closeMobileComposer();
+      }
+
+      resetForm();
+      return;
+    }
+
+    setTodos((currentTodos) => [
+      {
+        id: uuidv4(),
+        todo: title,
+        description: notes,
+        deadline,
+        priority,
+        isPinned,
+        tags: parsedTags,
+        isCompleted: false,
+        createdAt: new Date().toISOString(),
+      },
+      ...currentTodos,
+    ]);
+
+    if (isMobileViewport) {
+      closeMobileComposer();
+    }
+
+    resetForm();
+  };
+
+  const handleThemeToggle = () => {
+    setTheme((currentTheme) => (currentTheme === "dark" ? "light" : "dark"));
+  };
+
+  const handlePinToggle = (id) => {
+    setTodos((currentTodos) =>
+      currentTodos.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              isPinned: !item.isPinned,
+            }
+          : item
+      )
+    );
+  };
+
+  const renderTaskList = (items) =>
+    items.map((item) => {
+      const priorityMeta = getPriority(item.priority, item.isCompleted);
+      const dueMeta = getDueMeta(item.deadline, item.isCompleted);
+
+      return (
+        <article
+          key={item.id}
+          className={`task-card group ${item.isCompleted ? "task-card-complete" : ""}`}
+        >
+          <div className="flex items-start gap-4">
             <button
-              onClick={handleAdd}
-              disabled={todo.length <= 3}
-              className="w-full sm:w-auto cursor-pointer bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-black font-bold text-lg px-8 py-3 rounded-xl shadow-lg hover:shadow-2xl hover:shadow-amber-500/50 disabled:shadow-none transition-all duration-300 transform hover:scale-105 active:scale-95 disabled:transform-none disabled:opacity-50"
+              type="button"
+              onClick={() => handleCheckbox(item.id)}
+              className={`checkbox-chip ${item.isCompleted ? "checkbox-chip-active" : ""}`}
+              aria-label={item.isCompleted ? "Mark task incomplete" : "Mark task complete"}
             >
-              <span className="flex items-center justify-center gap-2">
-                💾 Save
-              </span>
+              <FiCheck className="text-sm" />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {item.isPinned && (
+                      <span className="metadata-pill metadata-pill-pin">Pinned</span>
+                    )}
+                    <h4
+                      className={`text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)] sm:text-lg ${
+                        item.isCompleted ? "line-through opacity-60" : ""
+                      }`}
+                    >
+                      {item.todo}
+                    </h4>
+                  </div>
+                  {item.description && (
+                    <p
+                      className={`mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)] ${
+                        item.isCompleted ? "opacity-50" : ""
+                      }`}
+                    >
+                      {item.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 self-start opacity-100 transition-all duration-200 lg:translate-y-1 lg:opacity-0 lg:group-hover:translate-y-0 lg:group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => handlePinToggle(item.id)}
+                    className={`icon-button ${item.isPinned ? "icon-button-active" : ""}`}
+                    aria-label={item.isPinned ? "Unpin task" : "Pin task"}
+                  >
+                    <FiBookmark />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(item.id)}
+                    className="icon-button"
+                    aria-label="Edit task"
+                  >
+                    <FiEdit2 />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(item.id)}
+                    className="icon-button"
+                    aria-label="Delete task"
+                  >
+                    <FiTrash2 />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[var(--text-muted)]">
+                <span className={`metadata-pill metadata-pill-${dueMeta.tone}`}>{dueMeta.label}</span>
+                <span className={`metadata-pill metadata-pill-${priorityMeta.tone}`}>
+                  <span className={`priority-dot priority-dot-${priorityMeta.tone}`} />
+                  {priorityMeta.label}
+                </span>
+                {item.tags?.map((tag) => (
+                  <span key={`${item.id}-${tag}`} className="metadata-pill metadata-pill-tag">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </article>
+      );
+    });
+
+  const composerContent = (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Focused planning</p>
+          <h2 className="display-face mt-2 text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
+            {editingId ? "Refine your task" : "What needs to be done?"}
+          </h2>
+        </div>
+
+        {isMobileViewport && (
+          <button
+            type="button"
+            onClick={dismissComposer}
+            className="icon-button h-10 w-10 shrink-0 rounded-2xl sm:hidden"
+            aria-label="Close add task modal"
+          >
+            <FiX />
+          </button>
+        )}
+      </div>
+
+      <form className="grid gap-3" onSubmit={handleSubmit}>
+        <input
+          ref={titleInputRef}
+          value={todo}
+          onChange={(event) => setTodo(event.target.value)}
+          type="text"
+          placeholder="What needs to be done?"
+          className="soft-input text-base sm:text-lg"
+        />
+        <textarea
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          rows="3"
+          placeholder="Add description (optional)"
+          className="soft-input min-h-28 resize-none text-sm"
+        />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)] sm:max-w-xs">
+            <FiCalendar className="text-base text-[var(--accent)]" />
+            <input
+              value={deadline}
+              onChange={(event) => setDeadline(event.target.value)}
+              type="date"
+              style={{ colorScheme: theme }}
+              className="date-input w-full bg-transparent text-[var(--text-primary)] outline-none"
+            />
+          </label>
+          <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)] sm:max-w-[12rem]">
+            <FiAlertCircle className="text-base text-[var(--accent)]" />
+            <select
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+              className="select-input w-full bg-transparent text-[var(--text-primary)] outline-none"
+            >
+              {PRIORITY_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label} priority
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-1 gap-3">
+            <button
+              type="button"
+              onClick={() => setIsPinned((currentValue) => !currentValue)}
+              className={`soft-button flex-1 sm:flex-none ${isPinned ? "soft-button-active" : ""}`}
+            >
+              {isPinned ? "Pinned" : "Pin Task"}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={dismissComposer}
+                className="soft-button flex-1 sm:flex-none"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={todo.trim().length < 3}
+              className="accent-button flex-1 sm:flex-none"
+            >
+              {editingId ? "Update Task" : "Add Task"}
             </button>
           </div>
-          <div className="pt-8 pb-3">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-              <h2 className="text-lg font-bold">Filter by Time</h2>
-              <button
-                onClick={handleDeleteFiltered}
-                className="w-full sm:w-auto cursor-pointer bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold px-4 py-2 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-500/50 flex items-center justify-center gap-2"
-              >
-                🗑️ <span className="hidden xs:inline">Delete</span> {timeFilter === "all" ? "All" : timeFilter === "1hour" ? "Last Hour" : timeFilter === "24hours" ? "Last 24h" : "Last 7d"} <span className="hidden xs:inline">Todos</span>
-              </button>
-            </div>
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">
-              <button
-                onClick={() => setTimeFilter("all")}
-                className={`cursor-pointer px-3 sm:px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 text-sm sm:text-base ${
-                  timeFilter === "all"
-                    ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/50"
-                    : "bg-gray-600/50 text-gray-300 hover:bg-gray-600/80"
-                }`}
-              >
-                📋 <span className="hidden sm:inline">All </span>Todos
-              </button>
-              <button
-                onClick={() => setTimeFilter("1hour")}
-                className={`cursor-pointer px-3 sm:px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 text-sm sm:text-base ${
-                  timeFilter === "1hour"
-                    ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/50"
-                    : "bg-gray-600/50 text-gray-300 hover:bg-gray-600/80"
-                }`}
-              >
-                ⚡ <span className="hidden sm:inline">Last </span>Hour
-              </button>
-              <button
-                onClick={() => setTimeFilter("24hours")}
-                className={`cursor-pointer px-3 sm:px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 text-sm sm:text-base ${
-                  timeFilter === "24hours"
-                    ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/50"
-                    : "bg-gray-600/50 text-gray-300 hover:bg-gray-600/80"
-                }`}
-              >
-                🌞 <span className="hidden sm:inline">Last </span>24h
-              </button>
-              <button
-                onClick={() => setTimeFilter("7days")}
-                className={`cursor-pointer px-3 sm:px-4 py-2 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 text-sm sm:text-base ${
-                  timeFilter === "7days"
-                    ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/50"
-                    : "bg-gray-600/50 text-gray-300 hover:bg-gray-600/80"
-                }`}
-              >
-                📅 <span className="hidden sm:inline">Last </span>7d
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between pt-6 pb-5">
-            <h2 className="text-lg font-bold">Your Todos</h2>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">Show Completed</span>
-              <div
-                onClick={toggleShowCompleted}
-                className={`w-14 h-7 flex items-center rounded-full p-1 cursor-pointer transition-all duration-300 ${
-                  showCompleted ? 'bg-green-500' : 'bg-gray-400'
-                }`}
-              >
-                <div
-                  className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${
-                    showCompleted ? 'translate-x-7' : 'translate-x-0'
-                  }`}
-                ></div>
+        </div>
+        <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)]">
+          <FiTag className="text-base text-[var(--accent)]" />
+          <input
+            value={tagsInput}
+            onChange={(event) => setTagsInput(event.target.value)}
+            type="text"
+            placeholder="Tags: Work, Study, Health"
+            className="w-full bg-transparent text-[var(--text-primary)] outline-none"
+          />
+        </label>
+      </form>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--text-primary)] transition-colors duration-300">
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(124,92,255,0.16),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(124,92,255,0.08),_transparent_28%)]" />
+        <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] [background-size:96px_96px]" />
+      </div>
+
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl gap-6 px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
+        <aside className="hidden w-72 shrink-0 lg:block">
+          <div className="sticky top-8 surface-panel flex h-[calc(100vh-4rem)] flex-col justify-between p-5">
+            <div className="space-y-8">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--text-muted)]">
+                  Workspace
+                </p>
+                <h1 className="display-face mt-3 text-3xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                  LineUp
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                  A calm place to capture what matters and move through it with less friction.
+                </p>
               </div>
+
+              <nav className="space-y-2">
+                {SIDEBAR_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeFilter === item.id;
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveFilter(item.id)}
+                      className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition-all duration-200 active:scale-[0.98] ${
+                        isActive
+                          ? "bg-[var(--accent-soft)] text-[var(--accent-strong)] shadow-[0_14px_32px_rgba(124,92,255,0.18)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span className="flex items-center gap-3 text-sm font-medium">
+                        <Icon className="text-base" />
+                        {item.label}
+                      </span>
+                      <span className="rounded-full bg-[var(--surface-raised)] px-2.5 py-1 text-xs font-semibold text-[var(--text-muted)]">
+                        {stats[item.id]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            <div className="rounded-3xl bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-secondary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <p className="font-medium text-[var(--text-primary)]">Today at a glance</p>
+              <p className="mt-2 leading-6">
+                {stats.today} due today, {stats.completed} completed, {stats.all - stats.completed} still in motion.
+              </p>
+              <p className="mt-2 leading-6 text-[var(--text-muted)]">{stats.pinned} pinned for priority focus.</p>
             </div>
           </div>
-          <div className="todos pt-5 pb-4 max-h-[50vh] overflow-y-auto">
-            {todos.length === 0 && (
-              <div className="text-center text-2xl font-bold">No Todos</div>
-            )}
-            {todos
-              .filter((item) => {
-                // Time filter
-                if (timeFilter !== "all" && item.createdAt) {
-                  const now = new Date();
-                  const createdAt = new Date(item.createdAt);
-                  const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
-                  
-                  if (timeFilter === "1hour" && hoursDiff > 1) return false;
-                  if (timeFilter === "24hours" && hoursDiff > 24) return false;
-                  if (timeFilter === "7days" && hoursDiff > 168) return false;
-                }
-                return true;
-              })
-              .map((item) => {
+        </aside>
+
+        <main className="flex min-h-[calc(100vh-2rem)] flex-1 flex-col gap-5">
+          <Navbar
+            theme={theme}
+            onToggleTheme={handleThemeToggle}
+            onQuickAdd={openComposer}
+          />
+
+          <section className="surface-panel hidden p-4 sm:block sm:p-5">
+            {composerContent}
+          </section>
+
+          <section className="surface-panel flex items-start gap-3 p-4 sm:p-5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
+              <FiAlertCircle className="text-lg" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Smart suggestion</p>
+              <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{insight}</p>
+            </div>
+          </section>
+
+          <section className="flex gap-3 overflow-x-auto pb-1">
+            {FILTERS.map((filter) => {
+              const isActive = activeFilter === filter.id;
+
               return (
-                (showCompleted || !item.isCompleted) && (
-                  <div
-                    key={item.id}
-                    className="todo group flex flex-col sm:flex-row w-full md:w-4/5 justify-between sm:items-center gap-3 mx-auto bg-gradient-to-r from-amber-400/90 via-amber-300/80 to-yellow-400/90 p-4 rounded-xl my-4 shadow-lg hover:shadow-2xl hover:shadow-amber-500/50 transition-all duration-300 transform hover:scale-[1.02] border border-amber-200/30"
-                  >
-                    <div className="flex items-start gap-3 sm:gap-4 flex-1">
-                      <div className="relative mt-1">
-                        <input
-                          name={item.id}
-                          onChange={handleCheckbox}
-                          type="checkbox"
-                          checked={item.isCompleted}
-                          className="appearance-none w-5 h-5 sm:w-6 sm:h-6 border-2 border-black rounded-md bg-white/80 checked:bg-green-500 checked:border-green-600 cursor-pointer transition-all duration-200 hover:scale-110"
-                        />
-                        {item.isCompleted && (
-                          <svg
-                            className="absolute top-0.5 left-0.5 w-4 h-4 sm:w-5 sm:h-5 text-white pointer-events-none"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={3}
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        <div
-                          className={`text-black font-semibold text-base sm:text-lg transition-all duration-300 break-words ${
-                            item.isCompleted
-                              ? 'line-through opacity-60 text-gray-700'
-                              : ''
-                          }`}
-                        >
-                          {item.todo}
-                        </div>
-                        {item.description && (
-                          <div className={`text-black/80 text-sm break-words ${
-                            item.isCompleted ? 'line-through opacity-50' : ''
-                          }`}>
-                            {item.description}
-                          </div>
-                        )}
-                        {item.deadline && (
-                          <div className="flex items-center gap-2 text-xs sm:text-sm">
-                            <span className="bg-purple-600/90 text-white px-2 sm:px-3 py-1 rounded-full font-medium shadow-md flex items-center gap-1">
-                              📅 {new Date(item.deadline).toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric', 
-                                year: 'numeric' 
-                              })}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="button flex gap-2 justify-end sm:justify-start">
-                      <button
-                        onClick={(e) => {
-                          handleEdit(e, item.id);
-                        }}
-                        className="bg-black/80 hover:bg-blue-600 text-white p-2.5 rounded-lg cursor-pointer transition-all duration-200 hover:scale-110 shadow-md hover:shadow-lg group-hover:rotate-6"
-                      >
-                        <FaRegEdit className="text-xl" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          handleDelete(e, item.id);
-                        }}
-                        className="bg-black/80 hover:bg-red-600 text-white p-2.5 rounded-lg cursor-pointer transition-all duration-200 hover:scale-110 shadow-md hover:shadow-lg group-hover:-rotate-6"
-                      >
-                        <MdDelete className="text-xl" />
-                      </button>
-                    </div>
-                  </div>
-                )
+                <button
+                  key={filter.id}
+                  type="button"
+                  onClick={() => setActiveFilter(filter.id)}
+                  className={`pill-tab ${isActive ? "pill-tab-active" : "pill-tab-idle"}`}
+                >
+                  {filter.label}
+                </button>
               );
             })}
-          </div>
-        </div>
+          </section>
+
+          <section className="flex flex-1 flex-col gap-3 pb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="display-face text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                  {activeFilter === "all"
+                    ? "All tasks"
+                    : activeFilter === "today"
+                      ? "Due today"
+                      : activeFilter === "upcoming"
+                        ? "Upcoming"
+                        : "Completed"}
+                </h3>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                  {sortedTodos.length} task{sortedTodos.length === 1 ? "" : "s"} in view
+                </p>
+              </div>
+            </div>
+
+            {sortedTodos.length === 0 ? (
+              <div className="surface-panel flex flex-1 items-center justify-center p-8 text-center">
+                <div className="max-w-sm">
+                  <p className="display-face text-2xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                    Nothing here yet.
+                  </p>
+                  <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+                    Add a task or switch filters to pick up where you left off.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {pinnedTodos.length > 0 && activeFilter !== "completed" && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="display-face text-lg font-semibold text-[var(--text-primary)]">
+                        Pinned tasks
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                        Keep your most important work anchored at the top.
+                      </p>
+                    </div>
+                    {renderTaskList(pinnedTodos)}
+                  </div>
+                )}
+
+                {regularTodos.length > 0 && (
+                  <div className="space-y-3">
+                    {pinnedTodos.length > 0 && activeFilter !== "completed" && (
+                      <div>
+                        <p className="display-face text-lg font-semibold text-[var(--text-primary)]">
+                          Everything else
+                        </p>
+                      </div>
+                    )}
+                    {renderTaskList(regularTodos)}
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        </main>
       </div>
+
+      {isMobileViewport && isMobileComposerOpen && (
+        <div className="mobile-modal-shell sm:hidden">
+          <button
+            type="button"
+            className="mobile-modal-backdrop"
+            onClick={dismissComposer}
+            aria-label="Close task modal"
+          />
+          <div className="mobile-modal-panel surface-panel">{composerContent}</div>
+        </div>
+      )}
     </div>
   );
 }

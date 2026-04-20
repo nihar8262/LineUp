@@ -1,27 +1,42 @@
-import React from 'react'
-import { FaGithub } from 'react-icons/fa'
+import { FiMoon, FiPlus, FiSun } from "react-icons/fi";
 
-const Navbar = () => {
-  return (
-    <nav className="bg-black backdrop-blur-xs relative z-100 p-2 flex justify-between items-center text-white px-4">
-        <div className="logo">
-            <span className='font-bold text-3xl mx-8' >L!NE∩P</span> 
-        </div>
-        <ul className="flex gap-8 mx-9 items-center">
-            <li>
-                <a 
-                    href="https://github.com/nihar8262/LineUp" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800 px-4 py-2 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
-                >
-                    <FaGithub className="text-2xl" />
-                    <span className="font-semibold">GitHub</span>
-                </a>
-            </li>
-        </ul>
-    </nav>
-  )
+function Navbar({ theme, onToggleTheme, onQuickAdd }) {
+    const isDark = theme === "dark";
+
+    return (
+        <header className="surface-panel sticky top-4 z-20 px-4 py-3 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <p className="display-face text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)] sm:text-3xl">
+                        LineUp
+                    </p>
+                    <p className="mt-1 text-xs font-medium uppercase tracking-[0.24em] text-[var(--text-muted)] sm:text-sm sm:normal-case sm:tracking-normal">
+                        Keep the day clear
+                    </p>
+                </div>
+
+                <div className="flex items-center gap-2 sm:gap-3">
+                    <button
+                        type="button"
+                        onClick={onQuickAdd}
+                        className="icon-button h-11 w-11 rounded-2xl bg-[var(--accent)] text-white shadow-[0_16px_30px_rgba(124,92,255,0.28)] hover:bg-[var(--accent-strong)]"
+                        aria-label="Add task"
+                    >
+                        <FiPlus className="text-lg" />
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={onToggleTheme}
+                        className="icon-button h-11 w-11 rounded-2xl"
+                        aria-label="Toggle theme"
+                    >
+                        {isDark ? <FiSun className="text-lg" /> : <FiMoon className="text-lg" />}
+                    </button>
+                </div>
+            </div>
+        </header>
+    );
 }
 
-export default Navbar
+export default Navbar;
