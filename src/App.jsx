@@ -60,7 +60,7 @@ function inferPriority(deadline) {
   const today = formatDateKey(new Date());
   const diffInDays = Math.ceil(
     (new Date(`${deadline}T00:00:00`) - new Date(`${today}T00:00:00`)) /
-      (1000 * 60 * 60 * 24)
+      (1000 * 60 * 60 * 24),
   );
 
   if (diffInDays <= 1) {
@@ -111,7 +111,7 @@ function getDueMeta(deadline, isCompleted) {
   const today = formatDateKey(new Date());
   const diffInDays = Math.ceil(
     (new Date(`${deadline}T00:00:00`) - new Date(`${today}T00:00:00`)) /
-      (1000 * 60 * 60 * 24)
+      (1000 * 60 * 60 * 24),
   );
 
   if (diffInDays < 0) {
@@ -226,7 +226,9 @@ function App() {
       }
 
       if (activeFilter === "upcoming") {
-        return !item.isCompleted && Boolean(item.deadline) && item.deadline > today;
+        return (
+          !item.isCompleted && Boolean(item.deadline) && item.deadline > today
+        );
       }
 
       return true;
@@ -249,12 +251,12 @@ function App() {
 
   const pinnedTodos = useMemo(
     () => sortedTodos.filter((item) => item.isPinned && !item.isCompleted),
-    [sortedTodos]
+    [sortedTodos],
   );
 
   const regularTodos = useMemo(
     () => sortedTodos.filter((item) => item.isCompleted || !item.isPinned),
-    [sortedTodos]
+    [sortedTodos],
   );
 
   const stats = useMemo(() => {
@@ -262,7 +264,9 @@ function App() {
 
     return {
       all: todos.length,
-      today: todos.filter((item) => !item.isCompleted && item.deadline === today).length,
+      today: todos.filter(
+        (item) => !item.isCompleted && item.deadline === today,
+      ).length,
       completed: todos.filter((item) => item.isCompleted).length,
       pinned: todos.filter((item) => item.isPinned && !item.isCompleted).length,
     };
@@ -270,7 +274,10 @@ function App() {
 
   const insight = useMemo(() => {
     const overdueCount = todos.filter(
-      (item) => !item.isCompleted && item.deadline && getDueMeta(item.deadline, false).label === "Overdue"
+      (item) =>
+        !item.isCompleted &&
+        item.deadline &&
+        getDueMeta(item.deadline, false).label === "Overdue",
     ).length;
 
     if (overdueCount > 0) {
@@ -327,8 +334,8 @@ function App() {
               ...item,
               isCompleted: !item.isCompleted,
             }
-          : item
-      )
+          : item,
+      ),
     );
   };
 
@@ -395,8 +402,8 @@ function App() {
                 isPinned,
                 tags: parsedTags,
               }
-            : item
-        )
+            : item,
+        ),
       );
 
       if (isMobileViewport) {
@@ -441,8 +448,8 @@ function App() {
               ...item,
               isPinned: !item.isPinned,
             }
-          : item
-      )
+          : item,
+      ),
     );
   };
 
@@ -461,7 +468,9 @@ function App() {
               type="button"
               onClick={() => handleCheckbox(item.id)}
               className={`checkbox-chip ${item.isCompleted ? "checkbox-chip-active" : ""}`}
-              aria-label={item.isCompleted ? "Mark task incomplete" : "Mark task complete"}
+              aria-label={
+                item.isCompleted ? "Mark task incomplete" : "Mark task complete"
+              }
             >
               <FiCheck className="text-sm" />
             </button>
@@ -471,7 +480,9 @@ function App() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {item.isPinned && (
-                      <span className="metadata-pill metadata-pill-pin">Pinned</span>
+                      <span className="metadata-pill metadata-pill-pin">
+                        Pinned
+                      </span>
                     )}
                     <h4
                       className={`text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)] sm:text-lg ${
@@ -521,13 +532,22 @@ function App() {
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[var(--text-muted)]">
-                <span className={`metadata-pill metadata-pill-${dueMeta.tone}`}>{dueMeta.label}</span>
-                <span className={`metadata-pill metadata-pill-${priorityMeta.tone}`}>
-                  <span className={`priority-dot priority-dot-${priorityMeta.tone}`} />
+                <span className={`metadata-pill metadata-pill-${dueMeta.tone}`}>
+                  {dueMeta.label}
+                </span>
+                <span
+                  className={`metadata-pill metadata-pill-${priorityMeta.tone}`}
+                >
+                  <span
+                    className={`priority-dot priority-dot-${priorityMeta.tone}`}
+                  />
                   {priorityMeta.label}
                 </span>
                 {item.tags?.map((tag) => (
-                  <span key={`${item.id}-${tag}`} className="metadata-pill metadata-pill-tag">
+                  <span
+                    key={`${item.id}-${tag}`}
+                    className="metadata-pill metadata-pill-tag"
+                  >
                     #{tag}
                   </span>
                 ))}
@@ -542,7 +562,9 @@ function App() {
     <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-[var(--text-secondary)]">Focused planning</p>
+          <p className="text-sm font-medium text-[var(--text-secondary)]">
+            Focused planning
+          </p>
           <h2 className="display-face mt-2 text-2xl font-semibold tracking-[-0.03em] sm:text-3xl">
             {editingId ? "Refine your task" : "What needs to be done?"}
           </h2>
@@ -601,11 +623,15 @@ function App() {
               ))}
             </select>
           </label>
-          <div className="flex flex-1 gap-3">
+          <div
+            className={`grid flex-1 gap-3 ${
+              editingId ? "grid-cols-3" : "grid-cols-2"
+            } lg:flex lg:grid-cols-none`}
+          >
             <button
               type="button"
               onClick={() => setIsPinned((currentValue) => !currentValue)}
-              className={`soft-button flex-1 sm:flex-none ${isPinned ? "soft-button-active" : ""}`}
+              className={`soft-button min-w-0 ${isPinned ? "soft-button-active" : ""}`}
             >
               {isPinned ? "Pinned" : "Pin Task"}
             </button>
@@ -613,7 +639,7 @@ function App() {
               <button
                 type="button"
                 onClick={dismissComposer}
-                className="soft-button flex-1 sm:flex-none"
+                className="soft-button min-w-0"
               >
                 Cancel
               </button>
@@ -621,7 +647,7 @@ function App() {
             <button
               type="submit"
               disabled={todo.trim().length < 3}
-              className="accent-button flex-1 sm:flex-none"
+              className="accent-button min-w-0"
             >
               {editingId ? "Update Task" : "Add Task"}
             </button>
@@ -653,14 +679,24 @@ function App() {
           <div className="sticky top-8 surface-panel flex h-[calc(100vh-4rem)] flex-col justify-between p-5">
             <div className="space-y-8">
               <div>
+                <div className="flex items-center gap-3">
+                  <div className="mb-4 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-[var(--surface-raised)] p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.14)]">
+                    <img
+                      src="/Lineup.png"
+                      alt="LineUp logo"
+                      className="h-full w-full rounded-xl object-contain"
+                    />
+                  </div>
+                  <h1 className="display-face pb-3 mt-3 text-3xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                    LineUp
+                  </h1>
+                </div>
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--text-muted)]">
                   Workspace
                 </p>
-                <h1 className="display-face mt-3 text-3xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-                  LineUp
-                </h1>
                 <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                  A calm place to capture what matters and move through it with less friction.
+                  A calm place to capture what matters and move through it with
+                  less friction.
                 </p>
               </div>
 
@@ -694,11 +730,16 @@ function App() {
             </div>
 
             <div className="rounded-3xl bg-[var(--surface-muted)] p-4 text-sm text-[var(--text-secondary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-              <p className="font-medium text-[var(--text-primary)]">Today at a glance</p>
-              <p className="mt-2 leading-6">
-                {stats.today} due today, {stats.completed} completed, {stats.all - stats.completed} still in motion.
+              <p className="font-medium text-[var(--text-primary)]">
+                Today at a glance
               </p>
-              <p className="mt-2 leading-6 text-[var(--text-muted)]">{stats.pinned} pinned for priority focus.</p>
+              <p className="mt-2 leading-6">
+                {stats.today} due today, {stats.completed} completed,{" "}
+                {stats.all - stats.completed} still in motion.
+              </p>
+              <p className="mt-2 leading-6 text-[var(--text-muted)]">
+                {stats.pinned} pinned for priority focus.
+              </p>
             </div>
           </div>
         </aside>
@@ -719,8 +760,12 @@ function App() {
               <FiAlertCircle className="text-lg" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-[var(--text-primary)]">Smart suggestion</p>
-              <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{insight}</p>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                Smart suggestion
+              </p>
+              <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                {insight}
+              </p>
             </div>
           </section>
 
@@ -754,7 +799,8 @@ function App() {
                         : "Completed"}
                 </h3>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  {sortedTodos.length} task{sortedTodos.length === 1 ? "" : "s"} in view
+                  {sortedTodos.length} task{sortedTodos.length === 1 ? "" : "s"}{" "}
+                  in view
                 </p>
               </div>
             </div>
@@ -812,7 +858,9 @@ function App() {
             onClick={dismissComposer}
             aria-label="Close task modal"
           />
-          <div className="mobile-modal-panel surface-panel">{composerContent}</div>
+          <div className="mobile-modal-panel surface-panel">
+            {composerContent}
+          </div>
         </div>
       )}
     </div>

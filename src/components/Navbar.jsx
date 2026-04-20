@@ -6,13 +6,22 @@ function Navbar({ theme, onToggleTheme, onQuickAdd }) {
     return (
         <header className="surface-panel sticky top-4 z-20 px-4 py-3 sm:px-5">
             <div className="flex items-center justify-between gap-3">
-                <div>
-                    <p className="display-face text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)] sm:text-3xl">
-                        LineUp
-                    </p>
-                    <p className="mt-1 text-xs font-medium uppercase tracking-[0.24em] text-[var(--text-muted)] sm:text-sm sm:normal-case sm:tracking-normal">
-                        Keep the day clear
-                    </p>
+                <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-[var(--surface-raised)] p-1.5 shadow-[0_10px_24px_rgba(15,23,42,0.12)] sm:h-14 sm:w-14">
+                        <img
+                            src="/Lineup.png"
+                            alt="LineUp logo"
+                            className="h-full w-full rounded-xl object-contain"
+                        />
+                    </div>
+                    <div>
+                        <p className="display-face text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)] sm:text-3xl">
+                            LineUp
+                        </p>
+                        <p className="mt-1 text-xs font-medium uppercase tracking-[0.24em] text-[var(--text-muted)] sm:text-sm sm:normal-case sm:tracking-normal">
+                            Keep the day clear
+                        </p>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-3">
