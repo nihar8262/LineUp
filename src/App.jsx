@@ -4,27 +4,32 @@ import {
   FiAlertCircle,
   FiBookmark,
   FiCalendar,
+  FiChevronDown,
   FiCheck,
   FiCheckCircle,
   FiClock,
   FiEdit2,
   FiList,
+  FiRepeat,
   FiTag,
   FiTrash2,
   FiX,
 } from "react-icons/fi";
+import { HiOutlineFire } from "react-icons/hi2";
 import { v4 as uuidv4 } from "uuid";
 
 const FILTERS = [
   { id: "all", label: "All" },
   { id: "today", label: "Today" },
   { id: "upcoming", label: "Upcoming" },
+  { id: "recurring", label: "Recurring" },
   { id: "completed", label: "Completed" },
 ];
 
 const SIDEBAR_ITEMS = [
   { id: "all", label: "All Tasks", icon: FiList },
   { id: "today", label: "Today", icon: FiClock },
+  { id: "recurring", label: "Recurring", icon: FiRepeat },
   { id: "completed", label: "Completed", icon: FiCheckCircle },
 ];
 
@@ -34,11 +39,104 @@ const PRIORITY_OPTIONS = [
   { id: "low", label: "Low", tone: "low" },
 ];
 
+const TODO_TYPE_OPTIONS = [
+  { id: "standard", label: "Standard task" },
+  { id: "daily", label: "Daily recurring" },
+];
+
 function formatDateKey(date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getDateKeyForTimeZone(date, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function getTodayInIST() {
+  return getDateKeyForTimeZone(new Date(), "Asia/Kolkata");
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const utcDate = new Date(Date.UTC(year, month - 1, day + days));
+  return utcDate.toISOString().slice(0, 10);
+}
+
+function normalizeCompletionHistory(history, completedOnDate) {
+  const rawHistory = Array.isArray(history) ? history : [];
+  const nextHistory = [...rawHistory];
+
+  if (typeof completedOnDate === "string" && !nextHistory.includes(completedOnDate)) {
+    nextHistory.push(completedOnDate);
+  }
+
+  return [...new Set(nextHistory.filter(Boolean))].sort();
+}
+
+function getCurrentStreak(history, todayInIST = getTodayInIST()) {
+  const completionSet = new Set(history);
+
+  if (!completionSet.has(todayInIST)) {
+    return 0;
+  }
+
+  let streak = 0;
+  let cursor = todayInIST;
+
+  while (completionSet.has(cursor)) {
+    streak += 1;
+    cursor = shiftDateKey(cursor, -1);
+  }
+
+  return streak;
+}
+
+function getLongestStreak(history) {
+  if (history.length === 0) {
+    return 0;
+  }
+
+  let longest = 1;
+  let current = 1;
+
+  for (let index = 1; index < history.length; index += 1) {
+    if (history[index] === shiftDateKey(history[index - 1], 1)) {
+      current += 1;
+      longest = Math.max(longest, current);
+      continue;
+    }
+
+    current = 1;
+  }
+
+  return longest;
+}
+
+function getRecurringStreakMeta(item, todayInIST = getTodayInIST()) {
+  const history = Array.isArray(item.completionHistory) ? item.completionHistory : [];
+  const currentStreak = getCurrentStreak(history, todayInIST);
+  const longestStreak = getLongestStreak(history);
+  const completedToday = history.includes(todayInIST);
+
+  return {
+    completedToday,
+    currentStreak,
+    longestStreak,
+    progress: currentStreak > 0 ? Math.min(100, (currentStreak / 7) * 100) : 0,
+    label:
+      currentStreak === 1 ? "1 day streak" : `${currentStreak} day streak`,
+    hint: completedToday
+      ? "Locked in for today. Keep the chain alive tomorrow."
+      : "Complete this today to light the streak.",
+  };
 }
 
 function formatDisplayDate(deadline) {
@@ -75,10 +173,26 @@ function inferPriority(deadline) {
 }
 
 function normalizeTodo(item) {
+  const type = item.type === "daily" ? "daily" : "standard";
+  const todayInIST = getTodayInIST();
+  const completionHistory = normalizeCompletionHistory(
+    item.completionHistory,
+    item.completedOnDate,
+  );
+  const completedOnDate = completionHistory.includes(todayInIST)
+    ? todayInIST
+    : null;
+  const isCompleted =
+    type === "daily" ? Boolean(completedOnDate) : Boolean(item.isCompleted);
+
   return {
     ...item,
+    type,
     priority: item.priority || inferPriority(item.deadline),
     isPinned: Boolean(item.isPinned),
+    isCompleted,
+    completedOnDate: isCompleted ? completedOnDate : null,
+    completionHistory: type === "daily" ? completionHistory : [],
     tags: Array.isArray(item.tags) ? item.tags.filter(Boolean) : [],
   };
 }
@@ -133,13 +247,24 @@ function getDueMeta(deadline, isCompleted) {
   return { label: formatDisplayDate(deadline), tone: "muted" };
 }
 
+function getTaskTypeMeta(item) {
+  if (item.type === "daily") {
+    return { label: "Daily recurring", tone: "daily" };
+  }
+
+  return null;
+}
+
 function App() {
   const [todo, setTodo] = useState("");
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState("");
   const [priority, setPriority] = useState("medium");
+  const [todoType, setTodoType] = useState("standard");
   const [tagsInput, setTagsInput] = useState("");
   const [isPinned, setIsPinned] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [todos, setTodos] = useState([]);
   const [activeFilter, setActiveFilter] = useState("all");
   const [theme, setTheme] = useState("dark");
@@ -158,6 +283,33 @@ function App() {
     if (storedTheme === "light" || storedTheme === "dark") {
       setTheme(storedTheme);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncDailyTodos = () => {
+      setTodos((currentTodos) => {
+        const nextTodos = currentTodos.map(normalizeTodo);
+        const hasChanges = nextTodos.some((item, index) => {
+          const currentItem = currentTodos[index];
+
+          return (
+            currentItem?.isCompleted !== item.isCompleted ||
+            currentItem?.completedOnDate !== item.completedOnDate ||
+            currentItem?.type !== item.type
+          );
+        });
+
+        return hasChanges ? nextTodos : currentTodos;
+      });
+    };
+
+    syncDailyTodos();
+
+    const intervalId = window.setInterval(syncDailyTodos, 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -190,13 +342,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isMobileViewport) {
-      setIsMobileComposerOpen(false);
-      return;
-    }
+    const shouldLockScroll =
+      pendingDeleteId !== null || (isMobileViewport && isMobileComposerOpen);
 
-    if (!isMobileComposerOpen) {
-      return;
+    if (!shouldLockScroll) {
+      return undefined;
     }
 
     const previousOverflow = document.body.style.overflow;
@@ -205,7 +355,13 @@ function App() {
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [isMobileComposerOpen, isMobileViewport]);
+  }, [isMobileComposerOpen, isMobileViewport, pendingDeleteId]);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setIsMobileComposerOpen(false);
+    }
+  }, [isMobileViewport]);
 
   useEffect(() => {
     if (isMobileComposerOpen) {
@@ -221,12 +377,20 @@ function App() {
         return item.isCompleted;
       }
 
+      if (activeFilter === "recurring") {
+        return item.type === "daily";
+      }
+
       if (activeFilter === "today") {
-        return !item.isCompleted && item.deadline === today;
+        return (
+          !item.isCompleted &&
+          (item.type === "daily" || item.deadline === today)
+        );
       }
 
       if (activeFilter === "upcoming") {
         return (
+          item.type !== "daily" &&
           !item.isCompleted && Boolean(item.deadline) && item.deadline > today
         );
       }
@@ -265,10 +429,35 @@ function App() {
     return {
       all: todos.length,
       today: todos.filter(
-        (item) => !item.isCompleted && item.deadline === today,
+        (item) =>
+          !item.isCompleted && (item.type === "daily" || item.deadline === today),
       ).length,
+      recurring: todos.filter((item) => item.type === "daily").length,
       completed: todos.filter((item) => item.isCompleted).length,
       pinned: todos.filter((item) => item.isPinned && !item.isCompleted).length,
+    };
+  }, [todos]);
+
+  const recurringSummary = useMemo(() => {
+    const recurringTodos = todos.filter((item) => item.type === "daily");
+    const streakMetas = recurringTodos.map((item) => getRecurringStreakMeta(item));
+    const completedToday = streakMetas.filter((item) => item.completedToday).length;
+    const currentBest = streakMetas.reduce(
+      (best, item) => Math.max(best, item.currentStreak),
+      0,
+    );
+    const longestEver = streakMetas.reduce(
+      (best, item) => Math.max(best, item.longestStreak),
+      0,
+    );
+
+    return {
+      total: recurringTodos.length,
+      completedToday,
+      completionRate:
+        recurringTodos.length > 0 ? (completedToday / recurringTodos.length) * 100 : 0,
+      currentBest,
+      longestEver,
     };
   }, [todos]);
 
@@ -300,8 +489,10 @@ function App() {
     setDescription("");
     setDeadline("");
     setPriority("medium");
+    setTodoType("standard");
     setTagsInput("");
     setIsPinned(false);
+    setFormErrors({});
     setEditingId(null);
   };
 
@@ -330,10 +521,29 @@ function App() {
     setTodos((currentTodos) =>
       currentTodos.map((item) =>
         item.id === id
-          ? {
-              ...item,
-              isCompleted: !item.isCompleted,
-            }
+          ? item.type === "daily"
+            ? (() => {
+                const todayInIST = getTodayInIST();
+                const history = normalizeCompletionHistory(
+                  item.completionHistory,
+                  item.completedOnDate,
+                );
+                const nextIsCompleted = !item.isCompleted;
+                const nextHistory = nextIsCompleted
+                  ? [...new Set([...history, todayInIST])].sort()
+                  : history.filter((dateKey) => dateKey !== todayInIST);
+
+                return {
+                  ...item,
+                  isCompleted: nextIsCompleted,
+                  completedOnDate: nextIsCompleted ? todayInIST : null,
+                  completionHistory: nextHistory,
+                };
+              })()
+            : {
+                ...item,
+                isCompleted: !item.isCompleted,
+              }
           : item,
       ),
     );
@@ -350,6 +560,7 @@ function App() {
     setDescription(task.description || "");
     setDeadline(task.deadline || "");
     setPriority(task.priority || "medium");
+    setTodoType(task.type || "standard");
     setTagsInput((task.tags || []).join(", "));
     setIsPinned(Boolean(task.isPinned));
     setEditingId(id);
@@ -362,8 +573,28 @@ function App() {
     titleInputRef.current?.focus();
   };
 
-  const handleDelete = (id) => {
+  const pendingDeleteTask =
+    pendingDeleteId !== null
+      ? todos.find((item) => item.id === pendingDeleteId) || null
+      : null;
+
+  const requestDelete = (id) => {
+    setPendingDeleteId(id);
+  };
+
+  const closeDeleteModal = () => {
+    setPendingDeleteId(null);
+  };
+
+  const handleDelete = () => {
+    if (!pendingDeleteId) {
+      return;
+    }
+
+    const id = pendingDeleteId;
+
     setTodos((currentTodos) => currentTodos.filter((item) => item.id !== id));
+    setPendingDeleteId(null);
 
     if (editingId === id) {
       resetForm();
@@ -384,24 +615,64 @@ function App() {
       .map((tag) => tag.trim())
       .filter(Boolean)
       .slice(0, 4);
+    const nextErrors = {};
 
-    if (title.length < 3) {
+    if (!title) {
+      nextErrors.todo = "Task name is required.";
+    } else if (title.length < 3) {
+      nextErrors.todo = "Task name must be at least 3 characters.";
+    }
+
+    if (!deadline) {
+      nextErrors.deadline = "Date is required.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
       return;
     }
+
+    setFormErrors({});
 
     if (editingId) {
       setTodos((currentTodos) =>
         currentTodos.map((item) =>
           item.id === editingId
-            ? {
-                ...item,
-                todo: title,
-                description: notes,
-                deadline,
-                priority,
-                isPinned,
-                tags: parsedTags,
-              }
+            ? (() => {
+                const todayInIST = getTodayInIST();
+                const existingHistory = normalizeCompletionHistory(
+                  item.completionHistory,
+                  item.completedOnDate,
+                );
+                const completionHistory =
+                  todoType === "daily"
+                    ? item.type === "daily"
+                      ? existingHistory
+                      : item.isCompleted
+                        ? [todayInIST]
+                        : []
+                    : [];
+
+                return {
+                  ...item,
+                  todo: title,
+                  description: notes,
+                  deadline,
+                  priority,
+                  type: todoType,
+                  isPinned,
+                  tags: parsedTags,
+                  isCompleted:
+                    todoType === "daily"
+                      ? completionHistory.includes(todayInIST)
+                      : item.isCompleted,
+                  completedOnDate:
+                    todoType === "daily" && completionHistory.includes(todayInIST)
+                      ? todayInIST
+                      : null,
+                  completionHistory,
+                };
+              })()
             : item,
         ),
       );
@@ -421,9 +692,12 @@ function App() {
         description: notes,
         deadline,
         priority,
+        type: todoType,
         isPinned,
         tags: parsedTags,
         isCompleted: false,
+        completedOnDate: null,
+        completionHistory: [],
         createdAt: new Date().toISOString(),
       },
       ...currentTodos,
@@ -456,7 +730,15 @@ function App() {
   const renderTaskList = (items) =>
     items.map((item) => {
       const priorityMeta = getPriority(item.priority, item.isCompleted);
-      const dueMeta = getDueMeta(item.deadline, item.isCompleted);
+      const dueMeta =
+        item.type === "daily"
+          ? { label: "Resets daily at 12:00 AM IST", tone: "daily" }
+          : getDueMeta(item.deadline, item.isCompleted);
+      const taskTypeMeta = getTaskTypeMeta(item);
+      const streakMeta =
+        activeFilter === "recurring" && item.type === "daily"
+          ? getRecurringStreakMeta(item)
+          : null;
 
       return (
         <article
@@ -482,6 +764,14 @@ function App() {
                     {item.isPinned && (
                       <span className="metadata-pill metadata-pill-pin">
                         Pinned
+                      </span>
+                    )}
+                    {taskTypeMeta && (
+                      <span
+                        className={`metadata-pill metadata-pill-${taskTypeMeta.tone}`}
+                      >
+                        <FiRepeat className="text-sm" />
+                        {taskTypeMeta.label}
                       </span>
                     )}
                     <h4
@@ -522,7 +812,7 @@ function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDelete(item.id)}
+                    onClick={() => requestDelete(item.id)}
                     className="icon-button"
                     aria-label="Delete task"
                   >
@@ -552,6 +842,37 @@ function App() {
                   </span>
                 ))}
               </div>
+
+              {streakMeta && (
+                <div className="streak-card mt-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`streak-flame ${streakMeta.completedToday ? "streak-flame-active" : ""}`}
+                      >
+                        <HiOutlineFire className="text-lg" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">
+                          {streakMeta.label}
+                        </p>
+                        <p className="text-xs text-[var(--text-secondary)]">
+                          {streakMeta.hint}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                      Best {streakMeta.longestStreak}d
+                    </p>
+                  </div>
+                  <div className="streak-track mt-3">
+                    <div
+                      className={`streak-fill ${streakMeta.completedToday ? "streak-fill-active" : ""}`}
+                      style={{ width: `${Math.max(streakMeta.progress, 6)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </article>
@@ -559,9 +880,9 @@ function App() {
     });
 
   const composerContent = (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      <div className="flex items-start justify-between gap-4 sm:items-start">
+        <div className="flex-1 text-center sm:text-left">
           <p className="text-sm font-medium text-[var(--text-secondary)]">
             Focused planning
           </p>
@@ -582,85 +903,145 @@ function App() {
         )}
       </div>
 
-      <form className="grid gap-3" onSubmit={handleSubmit}>
-        <input
-          ref={titleInputRef}
-          value={todo}
-          onChange={(event) => setTodo(event.target.value)}
-          type="text"
-          placeholder="What needs to be done?"
-          className="soft-input text-base sm:text-lg"
-        />
+      <form className="grid gap-3 text-center sm:text-left" onSubmit={handleSubmit}>
+        <label className="grid gap-2 text-center sm:text-left">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+            Task Name <span className="text-rose-400">*</span>
+          </span>
+          <input
+            ref={titleInputRef}
+            value={todo}
+            onChange={(event) => {
+              setTodo(event.target.value);
+              setFormErrors((currentErrors) => ({
+                ...currentErrors,
+                todo: "",
+              }));
+            }}
+            type="text"
+            placeholder="What needs to be done?"
+            className={`soft-input text-center text-base sm:text-left sm:text-lg ${
+              formErrors.todo ? "ring-2 ring-rose-400/70" : ""
+            }`}
+          />
+          {formErrors.todo && (
+            <span className="text-sm font-medium text-rose-400">
+              {formErrors.todo}
+            </span>
+          )}
+        </label>
         <textarea
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           rows="3"
           placeholder="Add description (optional)"
-          className="soft-input min-h-28 resize-none text-sm"
+          className="soft-input min-h-28 resize-none text-center text-sm sm:text-left"
         />
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)] sm:max-w-xs">
+        <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-stretch">
+          <label className="soft-input flex min-w-0 items-center justify-center gap-3 text-center text-sm text-[var(--text-secondary)] sm:flex-1 sm:basis-44 sm:justify-start sm:text-left">
             <FiCalendar className="text-base text-[var(--accent)]" />
+            <span className="shrink-0 font-medium">
+              Date <span className="text-rose-400">*</span>
+            </span>
             <input
               value={deadline}
-              onChange={(event) => setDeadline(event.target.value)}
+              onChange={(event) => {
+                setDeadline(event.target.value);
+                setFormErrors((currentErrors) => ({
+                  ...currentErrors,
+                  deadline: "",
+                }));
+              }}
               type="date"
               style={{ colorScheme: theme }}
-              className="date-input w-full bg-transparent text-[var(--text-primary)] outline-none"
+              className="date-input w-full bg-transparent text-center text-[var(--text-primary)] outline-none sm:text-left"
             />
           </label>
-          <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)] sm:max-w-[12rem]">
+          {formErrors.deadline && (
+            <p className="-mt-1 text-sm font-medium text-rose-400 sm:basis-full sm:text-left">
+              {formErrors.deadline}
+            </p>
+          )}
+          <label className="soft-input flex min-w-0 items-center justify-center gap-3 text-center text-sm text-[var(--text-secondary)] sm:flex-1 sm:basis-44 sm:justify-start sm:text-left">
             <FiAlertCircle className="text-base text-[var(--accent)]" />
-            <select
-              value={priority}
-              onChange={(event) => setPriority(event.target.value)}
-              className="select-input w-full bg-transparent text-[var(--text-primary)] outline-none"
-            >
-              {PRIORITY_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label} priority
-                </option>
-              ))}
-            </select>
+            <div className="select-shell">
+              <select
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+                className="select-input w-full bg-transparent text-center text-[var(--text-primary)] outline-none sm:text-left"
+              >
+                {PRIORITY_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label} priority
+                  </option>
+                ))}
+              </select>
+              <FiChevronDown className="select-chevron" />
+            </div>
+          </label>
+          <label className="soft-input flex min-w-0 items-center justify-center gap-3 text-center text-sm text-[var(--text-secondary)] sm:flex-1 sm:basis-48 sm:justify-start sm:text-left">
+            <FiRepeat className="text-base text-[var(--accent)]" />
+            <div className="select-shell">
+              <select
+                value={todoType}
+                onChange={(event) => setTodoType(event.target.value)}
+                className="select-input w-full bg-transparent text-center text-[var(--text-primary)] outline-none sm:text-left"
+              >
+                {TODO_TYPE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <FiChevronDown className="select-chevron" />
+            </div>
           </label>
           <div
-            className={`grid flex-1 gap-3 ${
-              editingId ? "grid-cols-3" : "grid-cols-2"
-            } lg:flex lg:grid-cols-none`}
+            className={`min-w-0 grid gap-3 sm:flex-1 ${
+              editingId
+                ? "grid-cols-1 sm:basis-72 sm:grid-cols-2 xl:grid-cols-3"
+                : "grid-cols-1 sm:basis-60 sm:grid-cols-2"
+            }`}
           >
-            <button
-              type="button"
-              onClick={() => setIsPinned((currentValue) => !currentValue)}
-              className={`soft-button min-w-0 ${isPinned ? "soft-button-active" : ""}`}
-            >
-              {isPinned ? "Pinned" : "Pin Task"}
-            </button>
-            {editingId && (
+            <div className="min-w-0 sm:text-left">
               <button
                 type="button"
-                onClick={dismissComposer}
-                className="soft-button min-w-0"
+                onClick={() => setIsPinned((currentValue) => !currentValue)}
+                className={`soft-button w-full min-w-0 ${isPinned ? "soft-button-active" : ""}`}
               >
-                Cancel
+                {isPinned ? "Pinned" : "Pin Task"}
               </button>
+            </div>
+            {editingId && (
+              <div className="min-w-0 sm:text-left">
+                <button
+                  type="button"
+                  onClick={dismissComposer}
+                  className="soft-button w-full min-w-0"
+                >
+                  Cancel
+                </button>
+              </div>
             )}
-            <button
-              type="submit"
-              disabled={todo.trim().length < 3}
-              className="accent-button min-w-0"
-            >
-              {editingId ? "Update Task" : "Add Task"}
-            </button>
+            <div className="min-w-0 sm:text-left">
+              <button
+                type="submit"
+                disabled={todo.trim().length < 3 || !deadline}
+                className="accent-button w-full min-w-0"
+              >
+                {editingId ? "Update Task" : "Add Task"}
+              </button>
+            </div>
           </div>
         </div>
-        <label className="soft-input flex items-center gap-3 text-sm text-[var(--text-secondary)]">
+        <label className="soft-input flex items-center justify-center gap-3 text-center text-sm text-[var(--text-secondary)] sm:justify-start sm:text-left">
           <FiTag className="text-base text-[var(--accent)]" />
           <input
             value={tagsInput}
             onChange={(event) => setTagsInput(event.target.value)}
             type="text"
             placeholder="Tags: Work, Study, Health"
-            className="w-full bg-transparent text-[var(--text-primary)] outline-none"
+            className="w-full bg-transparent text-center text-[var(--text-primary)] outline-none sm:text-left"
           />
         </label>
       </form>
@@ -751,11 +1132,11 @@ function App() {
             onQuickAdd={openComposer}
           />
 
-          <section className="surface-panel hidden p-4 sm:block sm:p-5">
+          <section className="surface-panel mx-auto hidden w-full max-w-3xl p-4 sm:block sm:p-5 lg:mx-0 lg:max-w-none">
             {composerContent}
           </section>
 
-          <section className="surface-panel flex items-start gap-3 p-4 sm:p-5">
+          <section className="surface-panel mx-auto flex w-full max-w-3xl items-start gap-3 px-5 py-4 sm:px-5 sm:py-5 lg:mx-0 lg:max-w-none">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
               <FiAlertCircle className="text-lg" />
             </div>
@@ -769,7 +1150,7 @@ function App() {
             </div>
           </section>
 
-          <section className="flex gap-3 overflow-x-auto pb-1">
+          <section className="filter-strip mx-auto flex w-full max-w-3xl gap-3 px-1 pb-1 lg:hidden">
             {FILTERS.map((filter) => {
               const isActive = activeFilter === filter.id;
 
@@ -786,8 +1167,80 @@ function App() {
             })}
           </section>
 
-          <section className="flex flex-1 flex-col gap-3 pb-6">
-            <div className="flex items-center justify-between">
+          {activeFilter === "recurring" && (
+            <section className="streak-panel surface-panel mx-auto w-full max-w-3xl px-5 py-4 sm:px-5 sm:py-5 lg:mx-0 lg:max-w-none">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="max-w-2xl">
+                  <p className="text-sm font-medium text-[var(--text-secondary)]">
+                    Recurring momentum
+                  </p>
+                  <h3 className="display-face mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                    Keep the chain warm, day after day.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                    Your recurring todos reset at midnight IST. Finish them today to
+                    protect the streak and grow tomorrow from a clean slate.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">
+                  <div className="streak-stat">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                      Completed today
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+                      {recurringSummary.completedToday}/{recurringSummary.total}
+                    </p>
+                  </div>
+                  <div className="streak-stat">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                      Best current streak
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+                      {recurringSummary.currentBest}d
+                    </p>
+                  </div>
+                  <div className="streak-stat">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                      Best ever streak
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+                      {recurringSummary.longestEver}d
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`streak-flame ${recurringSummary.completedToday > 0 ? "streak-flame-active" : ""}`}
+                    >
+                      <HiOutlineFire className="text-lg" />
+                    </span>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">
+                      Today&apos;s recurring streak bar
+                    </p>
+                  </div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                    {Math.round(recurringSummary.completionRate)}%
+                  </p>
+                </div>
+                <div className="streak-track mt-3">
+                  <div
+                    className={`streak-fill ${recurringSummary.completedToday > 0 ? "streak-fill-active" : ""}`}
+                    style={{
+                      width: `${Math.max(recurringSummary.total > 0 ? recurringSummary.completionRate : 0, recurringSummary.completedToday > 0 ? 10 : 0)}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 px-1 pb-6 lg:mx-0 lg:max-w-none lg:px-0">
+            <div className="flex items-center justify-between px-1 sm:px-0">
               <div>
                 <h3 className="display-face text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
                   {activeFilter === "all"
@@ -796,6 +1249,8 @@ function App() {
                       ? "Due today"
                       : activeFilter === "upcoming"
                         ? "Upcoming"
+                        : activeFilter === "recurring"
+                          ? "Recurring rituals"
                         : "Completed"}
                 </h3>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
@@ -860,6 +1315,55 @@ function App() {
           />
           <div className="mobile-modal-panel surface-panel">
             {composerContent}
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 border-0 bg-[rgba(3,5,10,0.62)] backdrop-blur-sm"
+            onClick={closeDeleteModal}
+            aria-label="Close delete confirmation"
+          />
+          <div className="surface-panel relative w-full max-w-md rounded-[28px] p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-500/12 text-rose-400">
+                <FiTrash2 className="text-lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[var(--text-secondary)]">
+                  Delete task
+                </p>
+                <h3 className="display-face mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                  Remove this task?
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    {pendingDeleteTask.todo}
+                  </span>{" "}
+                  will be deleted permanently. This action can&apos;t be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                className="soft-button w-full"
+              >
+                Keep task
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="w-full rounded-2xl border-0 bg-rose-500 px-5 py-3.5 font-semibold text-white shadow-[0_16px_30px_rgba(244,63,94,0.24)] transition hover:bg-rose-600 active:scale-[0.98]"
+              >
+                Delete task
+              </button>
+            </div>
           </div>
         </div>
       )}
