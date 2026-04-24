@@ -387,6 +387,10 @@ function App() {
     const today = formatDateKey(new Date());
 
     return todos.filter((item) => {
+      if (activeFilter === "all") {
+        return !item.isCompleted;
+      }
+
       if (activeFilter === "completed") {
         return item.isCompleted;
       }
