@@ -84,12 +84,26 @@ function normalizeCompletionHistory(history, completedOnDate) {
 function getCurrentStreak(history, todayInIST = getTodayInIST()) {
   const completionSet = new Set(history);
 
-  if (!completionSet.has(todayInIST)) {
+  if (completionSet.size === 0) {
     return 0;
   }
 
+  // Find the most recent completion date
+  const sortedHistory = [...completionSet].sort().reverse();
+  const mostRecent = sortedHistory[0];
+
+  // If most recent is today, streak starts from today
+  // If most recent is yesterday, streak starts from yesterday
+  // If most recent is older than yesterday, streak is broken (0)
+  const yesterday = shiftDateKey(todayInIST, -1);
+
+  if (mostRecent !== todayInIST && mostRecent !== yesterday) {
+    return 0;
+  }
+
+  // Count consecutive days backwards from the most recent completion
   let streak = 0;
-  let cursor = todayInIST;
+  let cursor = mostRecent;
 
   while (completionSet.has(cursor)) {
     streak += 1;
