@@ -193,7 +193,7 @@ button:disabled {
     border: 0;
     border-radius: 999px;
     padding: 0.7rem 1.05rem;
-    font-size: 0.94rem;
+    font-size: 0.9rem;
     font-weight: 600;
     transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
   }

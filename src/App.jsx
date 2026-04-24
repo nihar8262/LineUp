@@ -1150,7 +1150,7 @@ function App() {
             </div>
           </section>
 
-          <section className="filter-strip mx-auto flex w-full max-w-3xl gap-3 px-1 pb-1 lg:hidden">
+          <section className="filter-strip mx-auto text-[12px] flex flex-wrap w-full max-w-3xl gap-3 px-1 pb-1 lg:hidden">
             {FILTERS.map((filter) => {
               const isActive = activeFilter === filter.id;
 
